@@ -1,4 +1,3 @@
-/* eslint-disable max-len */
 "use client";
 import {
   useAuthModal,
@@ -27,7 +26,7 @@ export default function Home() {
               <span className="text-4xl">😎</span>
             </div>
             <div className="text-center">
-              <h1 className="text-2xl font-bold text-blue-900 mb-2">Awesome! You're in! 🎉</h1>
+              <h1 className="text-2xl font-bold text-blue-900 mb-2">Awesome! You&apos;re in! 🎉</h1>
               <p className="text-gray-600 mb-1">Welcome back,</p>
               <p className="text-xl font-semibold text-blue-800">{user.email ?? "Cool Person"}</p>
             </div>
@@ -54,7 +53,7 @@ export default function Home() {
               className="w-full py-4 px-6 bg-blue-600 text-white rounded-xl font-medium text-lg transition-all hover:bg-blue-700 hover:scale-105 active:scale-95 shadow-md"
               onClick={openAuthModal}
             >
-              Let's Go! 🚀
+              Let&apos;s Go! 🚀
             </button>
             <p className="text-sm text-gray-500 mt-4">No account? No worries! You can sign up too.</p>
           </div>
