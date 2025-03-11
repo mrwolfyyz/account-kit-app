@@ -4,6 +4,7 @@ import {
   useLogout,
   useSignerStatus,
   useUser,
+  useSmartAccountClient,
 } from "@account-kit/react";
 
 export default function Home() {
@@ -11,11 +12,17 @@ export default function Home() {
   const { openAuthModal } = useAuthModal();
   const signerStatus = useSignerStatus();
   const { logout } = useLogout();
+  const { client, address, isLoadingClient } = useSmartAccountClient({
+    // Optional: specify a policy ID for gas sponsorship
+    // policyId: "YOUR_POLICY_ID",
+    // Using ModularAccountV2 as recommended (this is the default)
+    type: "ModularAccountV2"
+  });
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center p-6 md:p-24 bg-gray-100">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-lg p-8 transition-all duration-300 hover:shadow-xl">
-        {signerStatus.isInitializing ? (
+        {signerStatus.isInitializing || isLoadingClient ? (
           <div className="flex flex-col items-center py-10 gap-4">
             <div className="animate-bounce text-4xl">🔄</div>
             <p className="text-lg font-medium text-blue-800">Loading your profile...</p>
@@ -33,6 +40,15 @@ export default function Home() {
               <p className="text-xl font-semibold text-blue-800">
                 {user.email ?? "Cool Person"}
               </p>
+              
+              {address ? (
+                <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+                  <p className="text-sm text-gray-600 mb-1">Your wallet address:</p>
+                  <p className="text-sm font-mono bg-white p-2 rounded border border-gray-200 break-all">
+                    {address}
+                  </p>
+                </div>
+              ) : null}
             </div>
             <button 
               className="w-full py-3 px-4 bg-blue-600 text-white rounded-xl font-medium
