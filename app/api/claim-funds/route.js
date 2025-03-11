@@ -13,11 +13,21 @@ const USDC_ABI = [
 ];
 
 export async function POST(request) {
+  console.log("==== CLAIM FUNDS API CALLED ====");
+
   try {
+    console.log("Parsing request body...");
     const { userEmail, destinationWallet } = await request.json();
+    console.log(
+      `Request data: email=${userEmail}, wallet=${destinationWallet?.substring(
+        0,
+        10
+      )}...`
+    );
 
     // Validate inputs
     if (!userEmail || typeof userEmail !== "string") {
+      console.log("Error: Invalid user email");
       return NextResponse.json(
         { message: "Valid user email is required" },
         { status: 400 }
@@ -29,6 +39,7 @@ export async function POST(request) {
       typeof destinationWallet !== "string" ||
       !destinationWallet.startsWith("0x")
     ) {
+      console.log("Error: Invalid destination wallet");
       return NextResponse.json(
         { message: "Valid destination wallet address is required" },
         { status: 400 }
@@ -36,10 +47,23 @@ export async function POST(request) {
     }
 
     // Get environment variables
+    console.log("Retrieving environment variables...");
     const PRIVATE_KEY = process.env.WALLET_PRIVATE_KEY;
     const RPC_URL = process.env.RPC_URL;
     const DEPOSITORY_ADDRESS = process.env.DEPOSITORY_CONTRACT_ADDRESS;
     const USDC_ADDRESS = process.env.USDC_CONTRACT_ADDRESS;
+
+    // Log environment variables (masked for security)
+    console.log("Environment check:", {
+      hasPrivateKey: !!PRIVATE_KEY && PRIVATE_KEY.length > 30,
+      privateKeyStart: PRIVATE_KEY
+        ? `${PRIVATE_KEY.substring(0, 6)}...`
+        : "missing",
+      hasRpcUrl: !!RPC_URL,
+      rpcUrlDomain: RPC_URL ? new URL(RPC_URL).hostname : "missing",
+      depositoryAddress: DEPOSITORY_ADDRESS || "missing",
+      usdcAddress: USDC_ADDRESS || "missing",
+    });
 
     if (!PRIVATE_KEY || !RPC_URL || !DEPOSITORY_ADDRESS || !USDC_ADDRESS) {
       console.error("Missing environment variables", {
@@ -55,16 +79,61 @@ export async function POST(request) {
     }
 
     // Set up provider and wallet
+    console.log(
+      `Initializing provider with RPC URL: ${RPC_URL.substring(0, 20)}...`
+    );
     const provider = new ethers.providers.JsonRpcProvider(RPC_URL);
 
     // Test provider connection
     try {
+      console.log("Testing network connection...");
+      console.log("Attempting getNetwork() call...");
       const network = await provider.getNetwork();
       console.log(
         `Connected to network: ${network.name} (chainId: ${network.chainId})`
       );
+
+      // Additional network check
+      console.log("Attempting getBlockNumber() call...");
+      const blockNumber = await provider.getBlockNumber();
+      console.log(`Current block number: ${blockNumber}`);
     } catch (networkError) {
       console.error("Failed to connect to network:", networkError);
+      console.error("Error details:", {
+        name: networkError.name,
+        message: networkError.message,
+        code: networkError.code,
+        stack: networkError.stack,
+      });
+
+      try {
+        // Simple ping test
+        console.log(
+          "Attempting simple JSON-RPC call to diagnose connection..."
+        );
+        const response = await fetch(RPC_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            method: "net_version",
+            params: [],
+            id: 1,
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          console.log("Direct RPC call response:", data);
+        } else {
+          console.log("Direct RPC call failed with status:", response.status);
+        }
+      } catch (pingError) {
+        console.error("Direct RPC ping failed:", pingError);
+      }
+
       return NextResponse.json(
         {
           message: "Could not connect to blockchain network",
@@ -74,6 +143,8 @@ export async function POST(request) {
       );
     }
 
+    // Continue with the rest of the function...
+    console.log("Setting up wallet...");
     // Ensure private key has 0x prefix
     const formattedPrivateKey = PRIVATE_KEY.startsWith("0x")
       ? PRIVATE_KEY
@@ -82,11 +153,13 @@ export async function POST(request) {
     console.log(`Using account: ${wallet.address}`);
 
     // Connect to the contracts
+    console.log(`Connecting to depository contract at ${DEPOSITORY_ADDRESS}`);
     const depositoryContract = new ethers.Contract(
       DEPOSITORY_ADDRESS,
       DEPOSITORY_ABI,
       wallet
     );
+    console.log(`Connecting to USDC contract at ${USDC_ADDRESS}`);
     const usdcContract = new ethers.Contract(USDC_ADDRESS, USDC_ABI, provider);
 
     try {
@@ -115,6 +188,7 @@ export async function POST(request) {
       }
 
       if (!hasUnclaimedDeposits) {
+        console.log("No unclaimed deposits found");
         return NextResponse.json(
           {
             message: "No unclaimed deposits found for this user",
@@ -131,6 +205,7 @@ export async function POST(request) {
         )} USDC`
       );
 
+      // Rest of the function remains the same...
       // Check destination wallet balance before claiming
       const beforeBalance = await usdcContract.balanceOf(destinationWallet);
       console.log(
@@ -177,6 +252,14 @@ export async function POST(request) {
       });
     } catch (contractError) {
       console.error("Contract error:", contractError);
+      console.error("Error details:", {
+        name: contractError.name,
+        message: contractError.message,
+        code: contractError.code,
+        reason: contractError.reason,
+        data: contractError.data,
+        stack: contractError.stack,
+      });
 
       // Check if it's a revert error with a message
       if (contractError.reason) {
@@ -209,7 +292,13 @@ export async function POST(request) {
       );
     }
   } catch (error) {
-    console.error("Error claiming funds:", error);
+    console.error("Unexpected error in claim funds API:", error);
+    console.error("Error details:", {
+      name: error.name,
+      message: error.message,
+      code: error.code,
+      stack: error.stack,
+    });
     return NextResponse.json(
       {
         message: "Failed to claim funds",
