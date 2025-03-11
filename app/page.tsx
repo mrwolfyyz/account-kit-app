@@ -51,8 +51,8 @@ export default function Home() {
               </div>
             </div>
             <div className="text-center">
-              <h1 className="text-2xl font-bold text-blue-900 mb-3">Hello there!</h1>
-              <p className="text-gray-600 mb-6">Ready to start your adventure?</p>
+              <h1 className="text-2xl font-bold text-blue-900 mb-3">G'day Welcome to Mullet!</h1>
+              <p className="text-gray-600 mb-6">Click the button below to get started!</p>
             </div>
             <button 
               className="w-full py-4 px-6 bg-blue-600 text-white rounded-xl font-medium text-lg
