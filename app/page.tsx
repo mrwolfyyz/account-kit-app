@@ -19,7 +19,29 @@ interface ClaimResponse {
   userEmail?: string;
   destinationWallet?: string;
   mockResponse?: boolean;
+  // Network information for explorer links
+  network?: string;
 }
+
+// Function to get block explorer URL based on network
+const getExplorerUrl = (network: string = 'mainnet', txHash: string) => {
+  const explorers = {
+    mainnet: `https://etherscan.io/tx/${txHash}`,
+    arbitrum: `https://arbiscan.io/tx/${txHash}`,
+    optimism: `https://optimistic.etherscan.io/tx/${txHash}`,
+    polygon: `https://polygonscan.com/tx/${txHash}`,
+    base: `https://basescan.org/tx/${txHash}`,
+    'base-sepolia': `https://sepolia.basescan.org/tx/${txHash}`,
+    // Add other testnets
+    sepolia: `https://sepolia.etherscan.io/tx/${txHash}`,
+    goerli: `https://goerli.etherscan.io/tx/${txHash}`,
+    mumbai: `https://mumbai.polygonscan.com/tx/${txHash}`,
+    'arbitrum-sepolia': `https://sepolia.arbiscan.io/tx/${txHash}`,
+    'optimism-sepolia': `https://sepolia-optimism.etherscan.io/tx/${txHash}`,
+  };
+  
+  return explorers[network as keyof typeof explorers] || explorers.mainnet;
+};
 
 export default function Home() {
   const user = useUser();
@@ -83,6 +105,54 @@ export default function Home() {
     }
   }, [user, address, claimComplete, claimStatus]);
 
+  // Transaction verification component
+  const TransactionDetails = ({ txData }: { txData: ClaimResponse }) => {
+    if (!txData || !txData.transactionHash) return null;
+    
+    const explorerUrl = getExplorerUrl(txData.network, txData.transactionHash);
+    
+    return (
+      <div className="mt-6 p-4 border border-blue-200 rounded-lg bg-blue-50">
+        <h3 className="text-lg font-semibold text-blue-800 mb-2">Transaction Details</h3>
+        <div className="space-y-2 text-sm">
+          {txData.blockNumber && (
+            <p className="flex justify-between">
+              <span className="font-medium text-gray-600">Block:</span>
+              <span className="font-mono">{txData.blockNumber}</span>
+            </p>
+          )}
+          {txData.amountClaimed && (
+            <p className="flex justify-between">
+              <span className="font-medium text-gray-600">Amount:</span>
+              <span className="font-mono">{txData.amountClaimed} USDC</span>
+            </p>
+          )}
+          {txData.gasUsed && (
+            <p className="flex justify-between">
+              <span className="font-medium text-gray-600">Gas Used:</span>
+              <span className="font-mono">{txData.gasUsed}</span>
+            </p>
+          )}
+          {txData.transactionHash && (
+            <div className="pt-2">
+              <p className="font-medium text-gray-600 mb-1">Transaction Hash:</p>
+              <p className="font-mono text-xs break-all">{txData.transactionHash}</p>
+              <a 
+                href={explorerUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-block py-1.5 px-3 bg-blue-600 text-white text-sm rounded-lg
+                          hover:bg-blue-700 transition-colors"
+              >
+                Verify on Block Explorer
+              </a>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <main className="flex min-h-screen flex-col items-center justify-center p-6 md:p-24 bg-gray-100">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-lg p-8 transition-all duration-300 hover:shadow-xl">
@@ -130,6 +200,11 @@ export default function Home() {
                     </p>
                   )}
                 </div>
+              )}
+              
+              {/* Transaction Details */}
+              {claimComplete && claimResponse && claimResponse.transactionHash && (
+                <TransactionDetails txData={claimResponse} />
               )}
               
               {/* Try again button */}
