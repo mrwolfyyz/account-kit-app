@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   useAuthModal,
   useLogout,
@@ -8,6 +8,19 @@ import {
   useSmartAccountClient,
 } from "@account-kit/react";
 
+// Define a type for the claim response
+interface ClaimResponse {
+  message: string;
+  transactionHash?: string;
+  amountClaimed?: string;
+  blockNumber?: number;
+  gasUsed?: string;
+  newBalance?: string;
+  userEmail?: string;
+  destinationWallet?: string;
+  mockResponse?: boolean;
+}
+
 export default function Home() {
   const user = useUser();
   const { openAuthModal } = useAuthModal();
@@ -15,21 +28,21 @@ export default function Home() {
   const { logout } = useLogout();
   const { address } = useSmartAccountClient({});
   
-  // Add these new state variables
+  // Add state variables with proper typing
   const [claimStatus, setClaimStatus] = useState("");
   const [claimComplete, setClaimComplete] = useState(false);
   const [claimError, setClaimError] = useState("");
-  const [claimResponse, setClaimResponse] = useState(null);
+  const [claimResponse, setClaimResponse] = useState<ClaimResponse | null>(null);
   
-  // Simple function to test the API endpoint
-  const testClaimApi = async () => {
-    if (!user?.email || !address) {
+  // Function to claim USDC
+  const claimFunds = async (userEmail: string, destinationWallet: string) => {
+    if (!userEmail || !destinationWallet) {
       setClaimError("User email or wallet address not available");
       return;
     }
     
     try {
-      setClaimStatus("Testing claim API...");
+      setClaimStatus("Initiating funds claim...");
       
       const response = await fetch('/api/claim-funds', {
         method: 'POST',
@@ -37,31 +50,38 @@ export default function Home() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          userEmail: user.email,
-          destinationWallet: address,
+          userEmail,
+          destinationWallet,
         }),
       });
       
-      const data = await response.json();
+      const data: ClaimResponse = await response.json();
       
       if (!response.ok) {
-        throw new Error(data.message || 'API test failed');
+        throw new Error(data.message || 'Claim request failed');
       }
       
-      setClaimStatus("API test successful!");
+      setClaimStatus(`Funds claimed! ${data.transactionHash ? `Transaction hash: ${data.transactionHash}` : ''}`);
       setClaimResponse(data);
       setClaimComplete(true);
       
     } catch (error: unknown) {
-      console.error("API test error:", error);
+      console.error("Claim error:", error);
       setClaimError(
         error && typeof error === 'object' && 'message' in error && typeof error.message === 'string' 
           ? error.message 
-          : "Failed to test API"
+          : "Failed to claim funds"
       );
-      setClaimStatus("API test failed");
+      setClaimStatus("Claim failed");
     }
   };
+  
+  // Auto-trigger the claim when user has authenticated and address is available
+  useEffect(() => {
+    if (user?.email && address && !claimComplete && !claimStatus) {
+      claimFunds(user.email, address);
+    }
+  }, [user, address, claimComplete, claimStatus]);
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center p-6 md:p-24 bg-gray-100">
@@ -90,18 +110,7 @@ export default function Home() {
                 {address || "Loading address..."}
               </p>
               
-              {/* Add Test button for API */}
-              {address && (
-                <button
-                  className="mt-4 py-2 px-4 bg-green-600 text-white rounded-xl font-medium
-                            transition-all hover:bg-green-700 active:scale-95"
-                  onClick={testClaimApi}
-                >
-                  Test Claim API
-                </button>
-              )}
-              
-              {/* API Test Status */}
+              {/* Claim Status */}
               {claimStatus && (
                 <div className={`mt-4 p-3 rounded-lg ${claimComplete ? 'bg-green-50' : 'bg-blue-50'}`}>
                   <p className="text-sm font-medium">
@@ -109,9 +118,10 @@ export default function Home() {
                   </p>
                   {claimComplete && claimResponse && (
                     <div className="text-sm text-green-600 mt-1">
-                      <pre className="whitespace-pre-wrap break-all bg-gray-100 p-2 rounded text-xs">
-                        {JSON.stringify(claimResponse, null, 2)}
-                      </pre>
+                      {claimResponse.amountClaimed && <p>Amount claimed: {claimResponse.amountClaimed} USDC</p>}
+                      {claimResponse.transactionHash && (
+                        <p className="text-xs mt-1">TX: {claimResponse.transactionHash.substring(0, 10)}...</p>
+                      )}
                     </div>
                   )}
                   {claimError && (
@@ -120,6 +130,23 @@ export default function Home() {
                     </p>
                   )}
                 </div>
+              )}
+              
+              {/* Try again button */}
+              {address && claimComplete && (
+                <button
+                  className="mt-4 py-2 px-4 bg-green-600 text-white rounded-xl font-medium
+                            transition-all hover:bg-green-700 active:scale-95"
+                  onClick={() => {
+                    setClaimStatus("");
+                    setClaimComplete(false);
+                    setClaimError("");
+                    setClaimResponse(null);
+                    claimFunds(user.email || "", address);
+                  }}
+                >
+                  Try Claim Again
+                </button>
               )}
             </div>
             <button 
