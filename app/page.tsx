@@ -52,9 +52,13 @@ export default function Home() {
       setClaimResponse(data);
       setClaimComplete(true);
       
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("API test error:", error);
-      setClaimError(error.message || "Failed to test API");
+      setClaimError(
+        error && typeof error === 'object' && 'message' in error && typeof error.message === 'string' 
+          ? error.message 
+          : "Failed to test API"
+      );
       setClaimStatus("API test failed");
     }
   };
