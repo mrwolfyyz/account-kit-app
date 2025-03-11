@@ -51,7 +51,7 @@ export default function Home() {
               </div>
             </div>
             <div className="text-center">
-              <h1 className="text-2xl font-bold text-blue-900 mb-3">G'day Welcome to Mullet!</h1>
+              <h1 className="text-2xl font-bold text-blue-900 mb-3">G&apos;day Welcome to Mullet!</h1>
               <p className="text-gray-600 mb-6">Click the button below to get started!</p>
             </div>
             <button 
