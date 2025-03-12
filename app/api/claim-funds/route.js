@@ -90,8 +90,9 @@ export async function POST(request) {
       ensAddress: null,
     };
 
-    // Initialize provider with explicit network definition
-    const provider = new ethers.providers.JsonRpcProvider(
+    // Initialize provider with StaticJsonRpcProvider instead of JsonRpcProvider
+    // This fixes the "Referrer 'client' is not a valid URL" error
+    const provider = new ethers.providers.StaticJsonRpcProvider(
       RPC_URL,
       baseSepoliaNetwork
     );
