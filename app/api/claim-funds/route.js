@@ -78,31 +78,44 @@ export async function POST(request) {
       );
     }
 
-    // Set up provider and wallet
+    // Set up provider and wallet with explicit network configuration
     console.log(
       `Initializing provider with RPC URL: ${RPC_URL.substring(0, 20)}...`
     );
-    const provider = new ethers.providers.JsonRpcProvider(RPC_URL);
+
+    // Define Base Sepolia network explicitly
+    const baseSepoliaNetwork = {
+      name: "base-sepolia",
+      chainId: 84532,
+      ensAddress: null,
+    };
+
+    // Initialize provider with explicit network definition
+    const provider = new ethers.providers.JsonRpcProvider(
+      RPC_URL,
+      baseSepoliaNetwork
+    );
 
     // Test provider connection
     try {
       console.log("Testing network connection...");
+      console.log("Attempting getBlockNumber() call first...");
+      const blockNumber = await provider.getBlockNumber();
+      console.log(`Current block number: ${blockNumber}`);
+
       console.log("Attempting getNetwork() call...");
       const network = await provider.getNetwork();
       console.log(
         `Connected to network: ${network.name} (chainId: ${network.chainId})`
       );
-
-      // Additional network check
-      console.log("Attempting getBlockNumber() call...");
-      const blockNumber = await provider.getBlockNumber();
-      console.log(`Current block number: ${blockNumber}`);
     } catch (networkError) {
       console.error("Failed to connect to network:", networkError);
       console.error("Error details:", {
         name: networkError.name,
         message: networkError.message,
         code: networkError.code,
+        reason: networkError.reason,
+        data: networkError.data,
         stack: networkError.stack,
       });
 
