@@ -155,7 +155,7 @@ export async function POST(request) {
       console.log("Testing network connection...");
       console.log("Attempting getBlockNumber() call first...");
       const blockNumber = await publicClient.getBlockNumber();
-      console.log(`Current block number: ${blockNumber}`);
+      console.log(`Current block number: ${blockNumber.toString()}`); // Convert BigInt to string
 
       console.log("Attempting getChainId() call...");
       const chainId = await publicClient.getChainId();
@@ -177,10 +177,13 @@ export async function POST(request) {
 
         console.log(`Found ${tokens.length} deposits for ${userEmail}`);
 
+        // Convert BigInt amounts to strings for logging
+        const amountsStrings = amounts.map((amount) => amount.toString());
+
         for (let i = 0; i < tokens.length; i++) {
           console.log(`Deposit #${i + 1}:`);
           console.log(`Token: ${tokens[i]}`);
-          console.log(`Amount: ${amounts[i]}`);
+          console.log(`Amount: ${amountsStrings[i]}`); // Use string representation
           console.log(`Claimed: ${claimed[i]}`);
 
           if (!claimed[i]) {
@@ -231,8 +234,10 @@ export async function POST(request) {
         // Wait for the transaction to be mined
         console.log(`Transaction sent: ${hash}`);
         const receipt = await publicClient.waitForTransactionReceipt({ hash });
-        console.log(`Transaction confirmed in block ${receipt.blockNumber}`);
-        console.log(`Gas used: ${receipt.gasUsed}`);
+        console.log(
+          `Transaction confirmed in block ${receipt.blockNumber.toString()}`
+        );
+        console.log(`Gas used: ${receipt.gasUsed.toString()}`);
 
         // Check destination wallet balance after claiming
         const afterBalance = await publicClient.readContract({
@@ -247,17 +252,18 @@ export async function POST(request) {
         // Log complete transaction details
         console.log("Transaction details:", {
           hash,
-          blockNumber: receipt.blockNumber,
+          blockNumber: receipt.blockNumber.toString(), // Convert BigInt to string
           gasUsed: receipt.gasUsed.toString(),
           from: account.address,
           to: destinationWallet,
           amountClaimed: formatUnits(balanceIncrease, 6),
         });
 
+        // Use formatUnits for all BigInt values in the response
         return NextResponse.json({
           message: "Funds claimed successfully",
           transactionHash: hash,
-          blockNumber: receipt.blockNumber,
+          blockNumber: receipt.blockNumber.toString(), // Convert BigInt to string
           gasUsed: receipt.gasUsed.toString(),
           amountClaimed: formatUnits(balanceIncrease, 6),
           newBalance: formatUnits(afterBalance, 6),
