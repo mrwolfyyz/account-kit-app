@@ -1,15 +1,49 @@
 import { NextResponse } from "next/server";
-import { ethers } from "ethers";
+import {
+  createPublicClient,
+  createWalletClient,
+  formatUnits,
+  http,
+  parseUnits,
+  getContract,
+} from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { baseSepolia } from "viem/chains";
 
 // SimpleWalletDepository ABI (only the functions we need)
 const DEPOSITORY_ABI = [
-  "function claimFunds(string recipientId, address destinationWallet) external",
-  "function getDeposits(string recipientId) external view returns (address[] tokens, uint256[] amounts, bool[] claimed)",
+  {
+    name: "claimFunds",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "recipientId", type: "string" },
+      { name: "destinationWallet", type: "address" },
+    ],
+    outputs: [],
+  },
+  {
+    name: "getDeposits",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "recipientId", type: "string" }],
+    outputs: [
+      { name: "tokens", type: "address[]" },
+      { name: "amounts", type: "uint256[]" },
+      { name: "claimed", type: "bool[]" },
+    ],
+  },
 ];
 
 // USDC ABI (only for checking balances)
 const USDC_ABI = [
-  "function balanceOf(address account) external view returns (uint256)",
+  {
+    name: "balanceOf",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
 ];
 
 export async function POST(request) {
@@ -83,13 +117,6 @@ export async function POST(request) {
       `Initializing provider with RPC URL: ${RPC_URL.substring(0, 20)}...`
     );
 
-    // Define Base Sepolia network explicitly
-    const baseSepoliaNetwork = {
-      name: "base-sepolia",
-      chainId: 84532,
-      ensAddress: null,
-    };
-
     // Fix for the referrer issue in Vercel
     console.log("Applying Request patch for Vercel environment...");
     const originalRequest = global.Request;
@@ -99,32 +126,192 @@ export async function POST(request) {
       return new originalRequest(input, init);
     };
 
-    // Initialize provider with the standard JsonRpcProvider
-    const provider = new ethers.providers.JsonRpcProvider(
-      RPC_URL,
-      baseSepoliaNetwork
-    );
-
-    // Test provider connection
     try {
+      // Ensure private key has 0x prefix
+      const formattedPrivateKey = PRIVATE_KEY.startsWith("0x")
+        ? PRIVATE_KEY
+        : `0x${PRIVATE_KEY}`;
+
+      // Create account from private key
+      const account = privateKeyToAccount(formattedPrivateKey);
+      console.log(`Using account: ${account.address}`);
+
+      // Initialize transport
+      const transport = http(RPC_URL);
+
+      // Create public client (for read operations)
+      const publicClient = createPublicClient({
+        chain: baseSepolia,
+        transport: transport,
+      });
+
+      // Create wallet client (for write operations)
+      const walletClient = createWalletClient({
+        account,
+        chain: baseSepolia,
+        transport: transport,
+      });
+
+      // Test network connection
       console.log("Testing network connection...");
       console.log("Attempting getBlockNumber() call first...");
-      const blockNumber = await provider.getBlockNumber();
+      const blockNumber = await publicClient.getBlockNumber();
       console.log(`Current block number: ${blockNumber}`);
 
-      console.log("Attempting getNetwork() call...");
-      const network = await provider.getNetwork();
-      console.log(
-        `Connected to network: ${network.name} (chainId: ${network.chainId})`
-      );
+      console.log("Attempting getChainId() call...");
+      const chainId = await publicClient.getChainId();
+      console.log(`Connected to chain ID: ${chainId}`);
+
+      // Create contract instances
+      console.log(`Connecting to depository contract at ${DEPOSITORY_ADDRESS}`);
+      const depositoryContract = getContract({
+        address: DEPOSITORY_ADDRESS,
+        abi: DEPOSITORY_ABI,
+        publicClient,
+        walletClient,
+      });
+
+      console.log(`Connecting to USDC contract at ${USDC_ADDRESS}`);
+      const usdcContract = getContract({
+        address: USDC_ADDRESS,
+        abi: USDC_ABI,
+        publicClient,
+      });
+
+      try {
+        // Check deposits before claiming
+        console.log(`Checking deposits for ${userEmail}`);
+        const [tokens, amounts, claimed] =
+          await depositoryContract.read.getDeposits([userEmail]);
+
+        // Calculate total unclaimed amount
+        let totalUnclaimedAmount = 0n;
+        let hasUnclaimedDeposits = false;
+
+        console.log(`Found ${tokens.length} deposits for ${userEmail}`);
+
+        for (let i = 0; i < tokens.length; i++) {
+          console.log(`Deposit #${i + 1}:`);
+          console.log(`Token: ${tokens[i]}`);
+          console.log(`Amount: ${amounts[i]}`);
+          console.log(`Claimed: ${claimed[i]}`);
+
+          if (!claimed[i]) {
+            totalUnclaimedAmount += amounts[i];
+            hasUnclaimedDeposits = true;
+          }
+        }
+
+        if (!hasUnclaimedDeposits) {
+          console.log("No unclaimed deposits found");
+          return NextResponse.json(
+            {
+              message: "No unclaimed deposits found for this user",
+              email: userEmail,
+            },
+            { status: 404 }
+          );
+        }
+
+        console.log(
+          `Total unclaimed amount: ${formatUnits(totalUnclaimedAmount, 6)} USDC`
+        );
+
+        // Check destination wallet balance before claiming
+        const beforeBalance = await usdcContract.read.balanceOf([
+          destinationWallet,
+        ]);
+        console.log(
+          `Destination wallet balance before claim: ${formatUnits(
+            beforeBalance,
+            6
+          )} USDC`
+        );
+
+        // Execute the claim
+        console.log(`Claiming funds for ${userEmail} to ${destinationWallet}`);
+        const hash = await depositoryContract.write.claimFunds(
+          [userEmail, destinationWallet],
+          { account }
+        );
+
+        // Wait for the transaction to be mined
+        console.log(`Transaction sent: ${hash}`);
+        const receipt = await publicClient.waitForTransactionReceipt({ hash });
+        console.log(`Transaction confirmed in block ${receipt.blockNumber}`);
+        console.log(`Gas used: ${receipt.gasUsed}`);
+
+        // Check destination wallet balance after claiming
+        const afterBalance = await usdcContract.read.balanceOf([
+          destinationWallet,
+        ]);
+        const balanceIncrease = afterBalance - beforeBalance;
+
+        // Log complete transaction details
+        console.log("Transaction details:", {
+          hash,
+          blockNumber: receipt.blockNumber,
+          gasUsed: receipt.gasUsed.toString(),
+          from: account.address,
+          to: destinationWallet,
+          amountClaimed: formatUnits(balanceIncrease, 6),
+        });
+
+        return NextResponse.json({
+          message: "Funds claimed successfully",
+          transactionHash: hash,
+          blockNumber: receipt.blockNumber,
+          gasUsed: receipt.gasUsed.toString(),
+          amountClaimed: formatUnits(balanceIncrease, 6),
+          newBalance: formatUnits(afterBalance, 6),
+        });
+      } catch (contractError) {
+        console.error("Contract error:", contractError);
+        console.error("Error details:", {
+          name: contractError.name,
+          message: contractError.message,
+          code: contractError.code,
+          reason: contractError.error?.reason,
+          data: contractError.error?.data,
+          stack: contractError.stack,
+        });
+
+        // Check if it's a revert error with a message
+        if (contractError.error?.reason) {
+          return NextResponse.json(
+            {
+              message: `Contract error: ${contractError.error.reason}`,
+              error: contractError.error.reason,
+            },
+            { status: 400 }
+          );
+        }
+
+        // Check if it's a custom error
+        if (contractError.error?.data) {
+          return NextResponse.json(
+            {
+              message: `Contract error with data: ${contractError.error.data}`,
+              error: contractError.error.data,
+            },
+            { status: 400 }
+          );
+        }
+
+        return NextResponse.json(
+          {
+            message: "Failed to interact with contract",
+            error: contractError.message,
+          },
+          { status: 500 }
+        );
+      }
     } catch (networkError) {
       console.error("Failed to connect to network:", networkError);
       console.error("Error details:", {
         name: networkError.name,
         message: networkError.message,
         code: networkError.code,
-        reason: networkError.reason,
-        data: networkError.data,
         stack: networkError.stack,
       });
 
@@ -160,154 +347,6 @@ export async function POST(request) {
         {
           message: "Could not connect to blockchain network",
           error: networkError.message,
-        },
-        { status: 500 }
-      );
-    }
-
-    // Continue with the rest of the function...
-    console.log("Setting up wallet...");
-    // Ensure private key has 0x prefix
-    const formattedPrivateKey = PRIVATE_KEY.startsWith("0x")
-      ? PRIVATE_KEY
-      : `0x${PRIVATE_KEY}`;
-    const wallet = new ethers.Wallet(formattedPrivateKey, provider);
-    console.log(`Using account: ${wallet.address}`);
-
-    // Connect to the contracts
-    console.log(`Connecting to depository contract at ${DEPOSITORY_ADDRESS}`);
-    const depositoryContract = new ethers.Contract(
-      DEPOSITORY_ADDRESS,
-      DEPOSITORY_ABI,
-      wallet
-    );
-    console.log(`Connecting to USDC contract at ${USDC_ADDRESS}`);
-    const usdcContract = new ethers.Contract(USDC_ADDRESS, USDC_ABI, provider);
-
-    try {
-      // Check deposits before claiming
-      console.log(`Checking deposits for ${userEmail}`);
-      const [tokens, amounts, claimed] = await depositoryContract.getDeposits(
-        userEmail
-      );
-
-      // Calculate total unclaimed amount
-      let totalUnclaimedAmount = ethers.BigNumber.from(0);
-      let hasUnclaimedDeposits = false;
-
-      console.log(`Found ${tokens.length} deposits for ${userEmail}`);
-
-      for (let i = 0; i < tokens.length; i++) {
-        console.log(`Deposit #${i + 1}:`);
-        console.log(`Token: ${tokens[i]}`);
-        console.log(`Amount: ${amounts[i].toString()}`);
-        console.log(`Claimed: ${claimed[i]}`);
-
-        if (!claimed[i]) {
-          totalUnclaimedAmount = totalUnclaimedAmount.add(amounts[i]);
-          hasUnclaimedDeposits = true;
-        }
-      }
-
-      if (!hasUnclaimedDeposits) {
-        console.log("No unclaimed deposits found");
-        return NextResponse.json(
-          {
-            message: "No unclaimed deposits found for this user",
-            email: userEmail,
-          },
-          { status: 404 }
-        );
-      }
-
-      console.log(
-        `Total unclaimed amount: ${ethers.utils.formatUnits(
-          totalUnclaimedAmount,
-          6
-        )} USDC`
-      );
-
-      // Check destination wallet balance before claiming
-      const beforeBalance = await usdcContract.balanceOf(destinationWallet);
-      console.log(
-        `Destination wallet balance before claim: ${ethers.utils.formatUnits(
-          beforeBalance,
-          6
-        )} USDC`
-      );
-
-      // Execute the claim
-      console.log(`Claiming funds for ${userEmail} to ${destinationWallet}`);
-      const tx = await depositoryContract.claimFunds(
-        userEmail,
-        destinationWallet
-      );
-
-      // Wait for the transaction to be mined
-      console.log(`Transaction sent: ${tx.hash}`);
-      const receipt = await tx.wait();
-      console.log(`Transaction confirmed in block ${receipt.blockNumber}`);
-      console.log(`Gas used: ${receipt.gasUsed.toString()}`);
-
-      // Check destination wallet balance after claiming
-      const afterBalance = await usdcContract.balanceOf(destinationWallet);
-      const balanceIncrease = afterBalance.sub(beforeBalance);
-
-      // Log complete transaction details
-      console.log("Transaction details:", {
-        hash: tx.hash,
-        blockNumber: receipt.blockNumber,
-        gasUsed: receipt.gasUsed.toString(),
-        from: wallet.address,
-        to: destinationWallet,
-        amountClaimed: ethers.utils.formatUnits(balanceIncrease, 6),
-      });
-
-      return NextResponse.json({
-        message: "Funds claimed successfully",
-        transactionHash: tx.hash,
-        blockNumber: receipt.blockNumber,
-        gasUsed: receipt.gasUsed.toString(),
-        amountClaimed: ethers.utils.formatUnits(balanceIncrease, 6),
-        newBalance: ethers.utils.formatUnits(afterBalance, 6),
-      });
-    } catch (contractError) {
-      console.error("Contract error:", contractError);
-      console.error("Error details:", {
-        name: contractError.name,
-        message: contractError.message,
-        code: contractError.code,
-        reason: contractError.reason,
-        data: contractError.data,
-        stack: contractError.stack,
-      });
-
-      // Check if it's a revert error with a message
-      if (contractError.reason) {
-        return NextResponse.json(
-          {
-            message: `Contract error: ${contractError.reason}`,
-            error: contractError.reason,
-          },
-          { status: 400 }
-        );
-      }
-
-      // Check if it's a custom error
-      if (contractError.data) {
-        return NextResponse.json(
-          {
-            message: `Contract error with data: ${contractError.data}`,
-            error: contractError.data,
-          },
-          { status: 400 }
-        );
-      }
-
-      return NextResponse.json(
-        {
-          message: "Failed to interact with contract",
-          error: contractError.message,
         },
         { status: 500 }
       );
