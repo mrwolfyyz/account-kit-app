@@ -90,9 +90,17 @@ export async function POST(request) {
       ensAddress: null,
     };
 
-    // Initialize provider with StaticJsonRpcProvider instead of JsonRpcProvider
-    // This fixes the "Referrer 'client' is not a valid URL" error
-    const provider = new ethers.providers.StaticJsonRpcProvider(
+    // Fix for the referrer issue in Vercel
+    console.log("Applying Request patch for Vercel environment...");
+    const originalRequest = global.Request;
+    global.Request = function (input, init) {
+      init = init || {};
+      init.referrerPolicy = "no-referrer";
+      return new originalRequest(input, init);
+    };
+
+    // Initialize provider with the standard JsonRpcProvider
+    const provider = new ethers.providers.JsonRpcProvider(
       RPC_URL,
       baseSepoliaNetwork
     );
@@ -219,7 +227,6 @@ export async function POST(request) {
         )} USDC`
       );
 
-      // Rest of the function remains the same...
       // Check destination wallet balance before claiming
       const beforeBalance = await usdcContract.balanceOf(destinationWallet);
       console.log(
