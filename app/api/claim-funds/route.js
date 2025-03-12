@@ -5,7 +5,6 @@ import {
   formatUnits,
   http,
   parseUnits,
-  getContract,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { baseSepolia } from "viem/chains";
@@ -162,27 +161,15 @@ export async function POST(request) {
       const chainId = await publicClient.getChainId();
       console.log(`Connected to chain ID: ${chainId}`);
 
-      // Create contract instances
-      console.log(`Connecting to depository contract at ${DEPOSITORY_ADDRESS}`);
-      const depositoryContract = getContract({
-        address: DEPOSITORY_ADDRESS,
-        abi: DEPOSITORY_ABI,
-        publicClient,
-        walletClient,
-      });
-
-      console.log(`Connecting to USDC contract at ${USDC_ADDRESS}`);
-      const usdcContract = getContract({
-        address: USDC_ADDRESS,
-        abi: USDC_ABI,
-        publicClient,
-      });
-
       try {
         // Check deposits before claiming
         console.log(`Checking deposits for ${userEmail}`);
-        const [tokens, amounts, claimed] =
-          await depositoryContract.read.getDeposits([userEmail]);
+        const [tokens, amounts, claimed] = await publicClient.readContract({
+          address: DEPOSITORY_ADDRESS,
+          abi: DEPOSITORY_ABI,
+          functionName: "getDeposits",
+          args: [userEmail],
+        });
 
         // Calculate total unclaimed amount
         let totalUnclaimedAmount = 0n;
@@ -218,9 +205,13 @@ export async function POST(request) {
         );
 
         // Check destination wallet balance before claiming
-        const beforeBalance = await usdcContract.read.balanceOf([
-          destinationWallet,
-        ]);
+        const beforeBalance = await publicClient.readContract({
+          address: USDC_ADDRESS,
+          abi: USDC_ABI,
+          functionName: "balanceOf",
+          args: [destinationWallet],
+        });
+
         console.log(
           `Destination wallet balance before claim: ${formatUnits(
             beforeBalance,
@@ -230,10 +221,12 @@ export async function POST(request) {
 
         // Execute the claim
         console.log(`Claiming funds for ${userEmail} to ${destinationWallet}`);
-        const hash = await depositoryContract.write.claimFunds(
-          [userEmail, destinationWallet],
-          { account }
-        );
+        const hash = await walletClient.writeContract({
+          address: DEPOSITORY_ADDRESS,
+          abi: DEPOSITORY_ABI,
+          functionName: "claimFunds",
+          args: [userEmail, destinationWallet],
+        });
 
         // Wait for the transaction to be mined
         console.log(`Transaction sent: ${hash}`);
@@ -242,9 +235,13 @@ export async function POST(request) {
         console.log(`Gas used: ${receipt.gasUsed}`);
 
         // Check destination wallet balance after claiming
-        const afterBalance = await usdcContract.read.balanceOf([
-          destinationWallet,
-        ]);
+        const afterBalance = await publicClient.readContract({
+          address: USDC_ADDRESS,
+          abi: USDC_ABI,
+          functionName: "balanceOf",
+          args: [destinationWallet],
+        });
+
         const balanceIncrease = afterBalance - beforeBalance;
 
         // Log complete transaction details
